@@ -1,0 +1,187 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                      solVPN - Quick Start Guide                            ║
+║                  Decentralized VPN on Solana Devnet                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+🚀 SYSTEM OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│   Next.js    │────▶│  Attestor    │────▶│   Solana     │
+│  Dashboard   │     │   Service    │     │  Program     │
+│  (Port 3000) │     │  (Port 8787) │     │  (Devnet)    │
+└──────────────┘     └──────────────┘     └──────────────┘
+                             │
+                             ▼
+                     ┌──────────────┐
+                     │ Node Operator│
+                     │  (WS Relay)  │
+                     └──────────────┘
+
+Program ID: 8j3TUcbSuaq5BVNSf5GJhgucwrswH432sqJNxCoym8hB
+
+
+📋 PREREQUISITES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ WSL2 Ubuntu installed
+✅ Solana CLI installed (~/.local/share/solana/install/active_release/bin/solana)
+✅ Devnet wallet funded (~/.config/solana/id.json)
+✅ Node.js v20+ installed
+✅ npm packages installed (npm install)
+✅ Phantom wallet browser extension
+
+
+🎬 STEP-BY-STEP STARTUP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TERMINAL A (WSL) - Start Attestor
+────────────────────────────────────────────────────────────────────────────
+cd /mnt/c/Users/aryan/Desktop/solVPN
+bash start-attestor.sh
+
+Expected output:
+  > @solvpn/attestor@0.1.0 dev
+  > tsx src/index.ts
+  Attestor listening on :8787
+
+✅ Leave this running!
+
+
+TERMINAL B (WSL) - Start Node Operator
+────────────────────────────────────────────────────────────────────────────
+cd /mnt/c/Users/aryan/Desktop/solVPN
+bash start-node-operator.sh
+
+Expected output:
+  Starting node operator for: <YOUR_PUBKEY>
+  > @solvpn/node-operator@0.1.0 dev
+  > tsx src/index.ts
+  Echo relay listening on ws://127.0.0.1:XXXXX
+
+✅ Leave this running! Note the WebSocket port number.
+
+
+TERMINAL C (Already Running) - Web Dashboard
+────────────────────────────────────────────────────────────────────────────
+The Next.js dev server is already running on http://localhost:3000
+
+If you need to start it manually:
+  cd /mnt/c/Users/aryan/Desktop/solVPN
+  npm run dev -w apps/web
+
+
+🌐 USING THE WEB DASHBOARD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Open http://localhost:3000 in your browser
+2. Click "Select Wallet" and connect Phantom
+3. Import your Solana keypair into Phantom (if not already):
+   - Open Phantom → Settings → Add/Import Wallet
+   - Use: ~/.config/solana/id.json (copy the JSON array)
+
+4. REGISTER NODE TAB:
+   - Default stake: 100000000 lamports (0.1 SOL)
+   - Default bandwidth: 100 Mbps
+   - Click "Register Node" → Approve in Phantom
+   - ✅ Success: You'll see the transaction signature
+
+5. VIEW STATE TAB:
+   - Click "Fetch State"
+   - See program authority, mint address, etc.
+
+6. CLAIM REWARDS TAB:
+   - Click "Claim Rewards"
+   - ✅ Success: DVPN tokens minted to your wallet!
+
+
+🧪 TESTING THE SYSTEM (WSL Terminal)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Set operator pubkey
+export OPERATOR_PUBKEY=$(solana-keygen pubkey ~/.config/solana/id.json)
+
+# Send test traffic to the node operator
+npm run client -w services/node-operator
+
+# Record usage (1 MB) via Attestor
+curl -X POST http://localhost:8787/record-usage \
+  -H 'content-type: application/json' \
+  -d "{\"operator\":\"$OPERATOR_PUBKEY\",\"bytes\":1048576}"
+
+Expected: {"ok":true,"tx":"<SIGNATURE>"}
+
+# Check your DVPN token balance
+npm run read:state -w services/attestor  # Get the mint address
+spl-token accounts --owner "$OPERATOR_PUBKEY"
+
+
+🔍 TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❌ "Attestor listening on :8787" not showing
+   → Check services/attestor/.env exists with ATTESTOR_SECRET_KEY
+   → Run: cat services/attestor/.env
+
+❌ "Connection refused" on localhost:8787
+   → Attestor not running, restart Terminal A
+
+❌ "Transaction simulation failed"
+   → Ensure your Devnet wallet has SOL:
+     solana balance
+     If 0, get SOL: https://faucet.solana.com
+
+❌ Phantom can't connect
+   → Make sure you imported the keypair from ~/.config/solana/id.json
+   → The JSON array should be 64 numbers like [178,57,151,...]
+
+❌ "Invalid proof" error
+   → This is expected! ZK proof verification is a placeholder
+   → The circuit exists but real proof generation isn't integrated yet
+
+
+📁 KEY FILES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+├── programs/dvpn/           → Solana program (Rust/Anchor)
+├── services/attestor/       → Off-chain attestor (port 8787)
+│   └── .env                 → Config with secret key
+├── services/node-operator/  → WebSocket relay for traffic
+├── apps/web/                → Next.js dashboard (port 3000)
+├── circuits/                → ZK circuits (Circom)
+└── sdk/                     → TypeScript SDK for dvpn program
+
+
+🎯 WHAT'S WORKING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Solana program deployed on Devnet
+✅ Node registration with SOL stake
+✅ Usage recording with bandwidth accounting
+✅ Reward claiming with SPL token minting
+✅ Web dashboard with Phantom wallet integration
+✅ REST API for all operations
+✅ WebSocket echo relay for traffic simulation
+✅ Circom circuit for session proofs (keys generated)
+
+
+📚 NEXT STEPS (Optional Enhancements)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+→ Replace WebSocket relay with full libp2p QUIC/WebRTC
+→ Integrate real ZK proof generation in client → attestor
+→ Add withdraw stake instruction
+→ Add event logs to program
+→ Comprehensive test suite
+→ CI/CD pipeline
+
+
+🆘 SUPPORT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Check logs in each terminal for errors.
+Solana Explorer: https://explorer.solana.com/?cluster=devnet
+Paste your transaction signatures to see details.
+
+═══════════════════════════════════════════════════════════════════════════
+

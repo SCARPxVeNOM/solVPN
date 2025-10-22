@@ -1,0 +1,8 @@
+[programs.localnet]
+dvpn = "DvPn111111111111111111111111111111111111111"
+
+[provider]
+cluster = "Devnet"
+wallet = "~/.config/solana/id.json"
+
+

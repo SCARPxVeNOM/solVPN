@@ -1,0 +1,21 @@
+{
+  "name": "@solvpn/node-operator",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "client": "tsx src/ping-client.ts",
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "node-fetch": "3.3.2",
+    "tsx": "4.16.2",
+    "ws": "8.17.1"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "typescript": "^5.6.3"
+  }
+}

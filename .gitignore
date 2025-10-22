@@ -1,0 +1,26 @@
+target/
+node_modules/
+.anchor/
+dist/
+.DS_Store
+**/*.log
+sdk/lib/
+sdk/dist/
+apps/**/.next/
+apps/**/out/
+apps/**/.cache/
+**/.env*
+!.env.example
+
+# Recursive ignores for nested packages and Rust targets
+**/node_modules/
+**/target/
+**/dist/
+
+# Circuits build artifacts and large files
+circuits/build/
+circuits/**/*.zkey
+circuits/**/*.wtns
+circuits/**/*.r1cs
+circuits/**/*.wasm
+circuits/**/pot*.ptau

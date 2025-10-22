@@ -1,0 +1,20 @@
+[workspace]
+members = ["programs/dvpn"]
+
+[programs.localnet]
+dvpn = "8j3TUcbSuaq5BVNSf5GJhgucwrswH432sqJNxCoym8hB"
+
+[programs.devnet]
+dvpn = "8j3TUcbSuaq5BVNSf5GJhgucwrswH432sqJNxCoym8hB"
+
+[registry]
+url = "https://anchor.projectserum.com"
+
+[provider]
+cluster = "Devnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "echo No tests yet"
+
+

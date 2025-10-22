@@ -1,0 +1,104 @@
+{
+  "address": "8j3TUcbSuaq5BVNSf5GJhgucwrswH432sqJNxCoym8hB",
+  "metadata": {
+    "name": "dvpn",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "initializeState",
+      "accounts": [
+        { "name": "authority", "isMut": true, "isSigner": true },
+        { "name": "state", "isMut": true, "isSigner": false },
+        { "name": "stateSigner", "isMut": false, "isSigner": false },
+        { "name": "dvpnMint", "isMut": false, "isSigner": false },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "bump", "type": "u8" },
+        { "name": "rewardRateBps", "type": "u16" }
+      ]
+    },
+    {
+      "name": "setAttestor",
+      "accounts": [
+        { "name": "authority", "isMut": false, "isSigner": true },
+        { "name": "state", "isMut": true, "isSigner": false }
+      ],
+      "args": [
+        { "name": "newAttestor", "type": "pubkey" }
+      ]
+    },
+    {
+      "name": "registerNode",
+      "accounts": [
+        { "name": "operator", "isMut": true, "isSigner": true },
+        { "name": "state", "isMut": true, "isSigner": false },
+        { "name": "node", "isMut": true, "isSigner": false },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "stakeLamports", "type": "u64" },
+        { "name": "bandwidthMbps", "type": "u32" },
+        { "name": "metaHash", "type": { "array": ["u8", 32] } }
+      ]
+    },
+    {
+      "name": "recordUsage",
+      "accounts": [
+        { "name": "attestor", "isMut": false, "isSigner": true },
+        { "name": "state", "isMut": true, "isSigner": false },
+        { "name": "node", "isMut": true, "isSigner": false }
+      ],
+      "args": [
+        { "name": "bytes", "type": "u64" }
+      ]
+    },
+    {
+      "name": "claimRewards",
+      "accounts": [
+        { "name": "operator", "isMut": true, "isSigner": true },
+        { "name": "state", "isMut": false, "isSigner": false },
+        { "name": "stateSigner", "isMut": false, "isSigner": false },
+        { "name": "dvpnMint", "isMut": true, "isSigner": false },
+        { "name": "node", "isMut": true, "isSigner": false },
+        { "name": "operatorTokenAccount", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false },
+        { "name": "associatedTokenProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "State",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "authority", "type": "pubkey" },
+          { "name": "attestor", "type": "pubkey" },
+          { "name": "mint", "type": "pubkey" },
+          { "name": "rewardRateBps", "type": "u16" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "Node",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "operator", "type": "pubkey" },
+          { "name": "bandwidthMbps", "type": "u32" },
+          { "name": "metaHash", "type": { "array": ["u8", 32] } },
+          { "name": "stakeLamports", "type": "u64" },
+          { "name": "totalBytesRelayed", "type": "u64" },
+          { "name": "unclaimedReward", "type": "u64" }
+        ]
+      }
+    }
+  ]
+}
+
+

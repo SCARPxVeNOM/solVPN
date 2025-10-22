@@ -1,0 +1,33 @@
+{
+  "name": "@solvpn/attestor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "init:state": "tsx src/init-state.ts",
+    "register:node": "tsx src/register-node.ts",
+    "record:usage": "tsx src/record-usage.ts",
+    "claim:rewards": "tsx src/claim-rewards.ts",
+    "set:mint-auth": "tsx src/set-mint-authority.ts",
+    "rotate:mint": "tsx src/rotate-mint.ts",
+    "read:state": "tsx src/read-state.ts",
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@solana/spl-token": "^0.4.7",
+    "@solana/web3.js": "^1.95.2",
+    "bn.js": "^5.2.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "tsx": "^4.16.2",
+    "typescript": "^5.6.3"
+  }
+}

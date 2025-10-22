@@ -1,0 +1,21 @@
+{
+  "name": "solvpn",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "sdk",
+    "services/*",
+    "apps/*",
+    "circuits"
+  ],
+  "scripts": {
+    "build": "npm run -ws build",
+    "clean": "npm run -ws clean || echo done",
+    "sdk:build": "npm --workspace sdk run build",
+    "attestor:dev": "npm --workspace services/attestor run dev",
+    "node:dev": "npm --workspace services/node-operator run dev"
+  },
+  "overrides": {
+    "@multiformats/multiaddr": "13.0.1"
+  }
+}

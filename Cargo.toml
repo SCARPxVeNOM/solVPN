@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "programs/dvpn"
+]
+
+[profile.release]
+opt-level = "s"
+overflow-checks = true
+
+
