@@ -176,6 +176,111 @@ app.get("/state", async (_req, res) => {
   }
 });
 
+// Fetch all registered nodes
+app.get("/nodes", async (_req, res) => {
+  try {
+    const accounts = await connection.getProgramAccounts(programId, {
+      filters: [
+        { dataSize: 100 }, // Approximate size of Node account
+      ],
+    });
+    
+    const nodes = accounts.map(account => ({
+      pubkey: account.pubkey.toBase58(),
+      operator: new PublicKey(account.account.data.slice(8, 40)).toBase58(),
+      bandwidthMbps: account.account.data.readUInt32LE(40),
+      stakeLamports: Number(account.account.data.readBigUInt64LE(76)),
+      totalBytesRelayed: Number(account.account.data.readBigUInt64LE(84)),
+    }));
+    
+    res.json({ ok: true, nodes });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Build start_session transaction
+const startSessionSchema = z.object({
+  user: z.string(),
+  node: z.string(),
+  depositAmount: z.number(),
+});
+
+app.post("/start-session-tx", async (req, res) => {
+  try {
+    const { user, node, depositAmount } = startSessionSchema.parse(req.body);
+    const userPk = new PublicKey(user);
+    const nodePk = new PublicKey(node);
+    
+    const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("state"), wallet.publicKey.toBuffer()], programId);
+    const [sessionPda] = PublicKey.findProgramAddressSync([Buffer.from("session"), userPk.toBuffer(), nodePk.toBuffer()], programId);
+    
+    // Build start_session instruction discriminator
+    const disc = createHash("sha256").update("global:start_session").digest().subarray(0, 8);
+    const amountBuf = Buffer.alloc(8);
+    amountBuf.writeBigUInt64LE(BigInt(depositAmount));
+    const data = Buffer.concat([disc, amountBuf]);
+    
+    const keys = [
+      { pubkey: sessionPda, isSigner: false, isWritable: true },
+      { pubkey: userPk, isSigner: true, isWritable: true },
+      { pubkey: nodePk, isSigner: false, isWritable: true },
+      { pubkey: statePda, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: false }, // Escrow token account (placeholder)
+      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: false }, // User token account (placeholder)
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ];
+    
+    const ix = new TransactionInstruction({ programId, keys, data });
+    const { blockhash } = await connection.getLatestBlockhash();
+    const tx = new Transaction({ feePayer: userPk, recentBlockhash: blockhash }).add(ix);
+    const b64 = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    
+    res.json({ ok: true, tx: b64 });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Build settle_session transaction
+const settleSessionSchema = z.object({
+  user: z.string(),
+  node: z.string(),
+});
+
+app.post("/settle-session-tx", async (req, res) => {
+  try {
+    const { user, node } = settleSessionSchema.parse(req.body);
+    const userPk = new PublicKey(user);
+    const nodePk = new PublicKey(node);
+    
+    const [sessionPda] = PublicKey.findProgramAddressSync([Buffer.from("session"), userPk.toBuffer(), nodePk.toBuffer()], programId);
+    
+    const disc = createHash("sha256").update("global:settle_session").digest().subarray(0, 8);
+    const data = Buffer.from(disc);
+    
+    const keys = [
+      { pubkey: sessionPda, isSigner: false, isWritable: true },
+      { pubkey: nodePk, isSigner: false, isWritable: true },
+      { pubkey: userPk, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: true }, // Escrow token
+      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: true }, // Node token
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: wallet.publicKey, isSigner: true, isWritable: false }, // Authority
+    ];
+    
+    const ix = new TransactionInstruction({ programId, keys, data });
+    const { blockhash } = await connection.getLatestBlockhash();
+    const tx = new Transaction({ feePayer: userPk, recentBlockhash: blockhash }).add(ix);
+    const b64 = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    
+    res.json({ ok: true, tx: b64 });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Attestor listening on :${PORT}`);
 });

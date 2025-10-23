@@ -1,29 +1,64 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { getTokenBalance, fetchState, SOLANA_RPC } from "../lib/solana";
 
 interface WalletConnectProps {
-  onWalletChange: (publicKey: string | null) => void;
+  onWalletChange: (publicKey: string | null, phantom: any) => void;
 }
 
 export function WalletConnect({ onWalletChange }: WalletConnectProps) {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [balance, setBalance] = useState<number>(0);
+  const [solBalance, setSolBalance] = useState<number>(0);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [phantom, setPhantom] = useState<any>(null);
 
   useEffect(() => {
     checkWalletConnection();
   }, []);
 
+  useEffect(() => {
+    if (walletAddress) {
+      fetchBalances();
+      const interval = setInterval(fetchBalances, 10000); // Update every 10s
+      return () => clearInterval(interval);
+    }
+  }, [walletAddress]);
+
+  const fetchBalances = async () => {
+    if (!walletAddress) return;
+    
+    try {
+      const connection = new Connection(SOLANA_RPC);
+      const pubkey = new PublicKey(walletAddress);
+      
+      // Fetch SOL balance
+      const sol = await connection.getBalance(pubkey);
+      setSolBalance(sol / 1e9);
+      
+      // Fetch DVPN token balance
+      const state = await fetchState(connection, pubkey);
+      if (state?.mint) {
+        const tokenBal = await getTokenBalance(connection, pubkey, state.mint);
+        setBalance(tokenBal);
+      }
+    } catch (error) {
+      console.error("Error fetching balances:", error);
+    }
+  };
+
   const checkWalletConnection = async () => {
     try {
       const { solana } = window as any;
-      if (solana?.isPhantom && solana.isConnected) {
-        const publicKey = solana.publicKey.toString();
-        setWalletAddress(publicKey);
-        onWalletChange(publicKey);
-        // Mock balance - in production, fetch real balance
-        setBalance(Math.random() * 100);
+      if (solana?.isPhantom) {
+        setPhantom(solana);
+        if (solana.isConnected) {
+          const publicKey = solana.publicKey.toString();
+          setWalletAddress(publicKey);
+          onWalletChange(publicKey, solana);
+        }
       }
     } catch (error) {
       console.error("Error checking wallet:", error);
@@ -45,10 +80,8 @@ export function WalletConnect({ onWalletChange }: WalletConnectProps) {
       const response = await solana.connect();
       const publicKey = response.publicKey.toString();
       setWalletAddress(publicKey);
-      onWalletChange(publicKey);
-      
-      // Mock balance
-      setBalance(Math.random() * 100);
+      setPhantom(solana);
+      onWalletChange(publicKey, solana);
     } catch (error) {
       console.error("Error connecting wallet:", error);
     } finally {
@@ -62,7 +95,9 @@ export function WalletConnect({ onWalletChange }: WalletConnectProps) {
       await solana?.disconnect();
       setWalletAddress(null);
       setBalance(0);
-      onWalletChange(null);
+      setSolBalance(0);
+      setPhantom(null);
+      onWalletChange(null, null);
     } catch (error) {
       console.error("Error disconnecting wallet:", error);
     }
