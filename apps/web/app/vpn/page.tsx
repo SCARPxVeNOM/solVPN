@@ -15,6 +15,9 @@ import {
   type NodeData 
 } from "../../lib/solana";
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 interface ServerNode {
   id: string;
   country: string;

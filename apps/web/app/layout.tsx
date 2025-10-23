@@ -6,6 +6,10 @@ export const metadata = {
   description: "Private, secure, and decentralized VPN powered by Solana blockchain",
 };
 
+// Force dynamic rendering for all pages
+export const dynamic = 'force-dynamic';
+export const dynamicParams = true;
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>

@@ -7,6 +7,9 @@ import { useMemo, useState, useEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey } from "@solana/web3.js";
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 const ATTESTOR_URL = "http://localhost:8787";
 const PROGRAM_ID = "8j3TUcbSuaq5BVNSf5GJhgucwrswH432sqJNxCoym8hB";
 
