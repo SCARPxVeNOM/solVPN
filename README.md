@@ -363,7 +363,7 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 - [Solana Foundation](https://solana.com)
 - [Anchor Framework](https://anchor-lang.com)
 - [Circom ZK toolkit](https://docs.circom.io)
-- Colosseum Hackathon participants
+
 
 ---
 
