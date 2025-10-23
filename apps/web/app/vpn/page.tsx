@@ -1,39 +1,256 @@
 "use client";
 
-import { useState } from "react";
-import { VPNMap, MOCK_SERVERS } from "../../components/VPNMap";
+import { useState, useEffect } from "react";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { VPNMap } from "../../components/VPNMap";
 import { ConnectButton } from "../../components/ConnectButton";
 import { ServerList } from "../../components/ServerList";
 import { BandwidthMonitor } from "../../components/BandwidthMonitor";
 import { WalletConnect } from "../../components/WalletConnect";
+import { 
+  SOLANA_RPC, 
+  ATTESTOR_URL,
+  fetchSession,
+  getNodePda,
+  type NodeData 
+} from "../../lib/solana";
+
+interface ServerNode {
+  id: string;
+  country: string;
+  city: string;
+  lat: number;
+  lng: number;
+  load: number;
+  online: boolean;
+  operator: string;
+  bandwidthMbps: number;
+}
 
 export default function VPNPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [phantom, setPhantom] = useState<any>(null);
+  const [servers, setServers] = useState<ServerNode[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [sessionData, setSessionData] = useState<any>(null);
+  const [websocket, setWebsocket] = useState<WebSocket | null>(null);
+  const [bytesTransferred, setBytesTransferred] = useState(0);
+
+  // Fetch real nodes from blockchain
+  useEffect(() => {
+    loadNodes();
+    const interval = setInterval(loadNodes, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  // Poll session data when connected
+  useEffect(() => {
+    if (isConnected && walletAddress && selectedServer) {
+      pollSessionData();
+      const interval = setInterval(pollSessionData, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [isConnected, walletAddress, selectedServer]);
+
+  const loadNodes = async () => {
+    try {
+      const response = await fetch(`${ATTESTOR_URL}/nodes`);
+      const data = await response.json();
+      
+      if (data.ok && data.nodes) {
+        // Map blockchain nodes to UI format with mock locations for now
+        const mockLocations = [
+          { country: "USA", city: "New York", lat: 40.7128, lng: -74.0060 },
+          { country: "UK", city: "London", lat: 51.5074, lng: -0.1278 },
+          { country: "Singapore", city: "Singapore", lat: 1.3521, lng: 103.8198 },
+          { country: "Germany", city: "Frankfurt", lat: 50.1109, lng: 8.6821 },
+          { country: "Japan", city: "Tokyo", lat: 35.6762, lng: 139.6503 },
+          { country: "Australia", city: "Sydney", lat: -33.8688, lng: 151.2093 },
+        ];
+
+        const mappedServers = data.nodes.map((node: any, index: number) => {
+          const location = mockLocations[index % mockLocations.length];
+          const load = Math.min((node.totalBytesRelayed / 1e9) * 100, 99); // Calculate load from usage
+          
+          return {
+            id: node.pubkey,
+            operator: node.operator,
+            bandwidthMbps: node.bandwidthMbps,
+            load: Math.floor(load),
+            online: true,
+            ...location,
+          };
+        });
+
+        setServers(mappedServers);
+      }
+    } catch (error) {
+      console.error("Failed to load nodes:", error);
+      // Fallback to empty array on error
+      setServers([]);
+    }
+  };
+
+  const pollSessionData = async () => {
+    if (!walletAddress || !selectedServer) return;
+
+    try {
+      const connection = new Connection(SOLANA_RPC);
+      const userPubkey = new PublicKey(walletAddress);
+      const serverInfo = servers.find(s => s.id === selectedServer);
+      if (!serverInfo) return;
+
+      const [nodePda] = getNodePda(new PublicKey(serverInfo.operator));
+      const session = await fetchSession(connection, userPubkey, new PublicKey(serverInfo.operator));
+      
+      if (session) {
+        setSessionData(session);
+        setBytesTransferred(session.bytesUsed);
+      }
+    } catch (error) {
+      console.error("Failed to fetch session data:", error);
+    }
+  };
 
   const handleVPNToggle = async () => {
-    if (!walletAddress) {
-      alert("Please connect your wallet first!");
+    if (!walletAddress || !phantom) {
+      setError("Please connect your wallet first!");
+      setTimeout(() => setError(null), 3000);
       return;
     }
 
     if (!selectedServer) {
-      alert("Please select a server!");
+      setError("Please select a server!");
+      setTimeout(() => setError(null), 3000);
       return;
     }
 
     setIsLoading(true);
-    
-    // Simulate connection delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setIsConnected(!isConnected);
-    setIsLoading(false);
+    setError(null);
+
+    try {
+      if (!isConnected) {
+        // START SESSION
+        const serverInfo = servers.find(s => s.id === selectedServer);
+        if (!serverInfo) throw new Error("Server not found");
+
+        const depositAmount = 1000000; // 0.001 DVPN tokens (adjust based on your decimals)
+
+        const response = await fetch(`${ATTESTOR_URL}/start-session-tx`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user: walletAddress,
+            node: serverInfo.id,
+            depositAmount,
+          }),
+        });
+
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "Failed to build transaction");
+
+        // Sign and send via Phantom
+        const txBuffer = Buffer.from(data.tx, "base64");
+        const signed = await phantom.signAndSendTransaction({
+          message: txBuffer,
+        });
+
+        setSuccess("Session started! Connecting to VPN...");
+        setTimeout(() => setSuccess(null), 3000);
+        
+        // Connect to WebSocket
+        connectToNode(serverInfo.operator);
+        
+        setIsConnected(true);
+      } else {
+        // SETTLE SESSION
+        const serverInfo = servers.find(s => s.id === selectedServer);
+        if (!serverInfo) throw new Error("Server not found");
+
+        const response = await fetch(`${ATTESTOR_URL}/settle-session-tx`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user: walletAddress,
+            node: serverInfo.id,
+          }),
+        });
+
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "Failed to build transaction");
+
+        const txBuffer = Buffer.from(data.tx, "base64");
+        await phantom.signAndSendTransaction({
+          message: txBuffer,
+        });
+
+        setSuccess("Session settled! Tokens transferred to node operator.");
+        setTimeout(() => setSuccess(null), 3000);
+        
+        // Disconnect WebSocket
+        if (websocket) {
+          websocket.close();
+          setWebsocket(null);
+        }
+        
+        setIsConnected(false);
+        setSessionData(null);
+        setBytesTransferred(0);
+      }
+    } catch (error: any) {
+      console.error("VPN toggle error:", error);
+      setError(error.message || "Transaction failed");
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const selectedServerInfo = MOCK_SERVERS.find(s => s.id === selectedServer);
+  const connectToNode = (operatorPubkey: string) => {
+    try {
+      // Connect to node operator's WebSocket (adjust URL as needed)
+      const ws = new WebSocket(`ws://localhost:3001`);
+      
+      ws.onopen = () => {
+        console.log("Connected to VPN node");
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.bytes) {
+            setBytesTransferred(prev => prev + data.bytes);
+          }
+        } catch (e) {
+          // Handle binary data or echo
+          setBytesTransferred(prev => prev + event.data.length);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
+
+      ws.onclose = () => {
+        console.log("Disconnected from VPN node");
+      };
+
+      setWebsocket(ws);
+    } catch (error) {
+      console.error("Failed to connect to node:", error);
+    }
+  };
+
+  const selectedServerInfo = servers.find(s => s.id === selectedServer);
+
+  const handleWalletChange = (pubkey: string | null, phantomInstance: any) => {
+    setWalletAddress(pubkey);
+    setPhantom(phantomInstance);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -71,6 +288,29 @@ export default function VPNPage() {
         </div>
       </header>
 
+      {/* Notifications */}
+      {error && (
+        <div className="fixed top-20 right-6 bg-red-500/90 backdrop-blur-sm text-white px-6 py-4 rounded-xl shadow-lg z-50 animate-slide-in">
+          <div className="flex items-center gap-3">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{error}</span>
+          </div>
+        </div>
+      )}
+
+      {success && (
+        <div className="fixed top-20 right-6 bg-green-500/90 backdrop-blur-sm text-white px-6 py-4 rounded-xl shadow-lg z-50 animate-slide-in">
+          <div className="flex items-center gap-3">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{success}</span>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -87,7 +327,9 @@ export default function VPNPage() {
 
                 {selectedServerInfo && (
                   <div className="mt-6 text-center">
-                    <p className="text-slate-400 text-sm mb-2">Connected to</p>
+                    <p className="text-slate-400 text-sm mb-2">
+                      {isConnected ? "Connected to" : "Selected server"}
+                    </p>
                     <div className="flex items-center justify-center gap-2">
                       <span className="text-2xl">
                         {selectedServerInfo.country === "USA" && "🇺🇸"}
@@ -101,6 +343,12 @@ export default function VPNPage() {
                         {selectedServerInfo.city}, {selectedServerInfo.country}
                       </p>
                     </div>
+                    {isConnected && sessionData && (
+                      <div className="mt-4 text-sm text-slate-400">
+                        <p>Deposit: {sessionData.depositAmount / 1e6} DVPN</p>
+                        <p>Data used: {(bytesTransferred / 1048576).toFixed(2)} MB</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -115,20 +363,32 @@ export default function VPNPage() {
             </div>
 
             {/* Bandwidth Monitor */}
-            <BandwidthMonitor isConnected={isConnected} />
+            <BandwidthMonitor 
+              isConnected={isConnected}
+              bytesTransferred={bytesTransferred}
+              websocket={websocket}
+              sessionStartTime={sessionData?.startedAt ? sessionData.startedAt * 1000 : 0}
+            />
           </div>
 
           {/* Right Column */}
           <div className="space-y-6">
             {/* Wallet Connect */}
-            <WalletConnect onWalletChange={setWalletAddress} />
+            <WalletConnect onWalletChange={handleWalletChange} />
 
             {/* Server List */}
-            <ServerList
-              servers={MOCK_SERVERS}
-              selectedServer={selectedServer}
-              onServerSelect={setSelectedServer}
-            />
+            {servers.length > 0 ? (
+              <ServerList
+                servers={servers}
+                selectedServer={selectedServer}
+                onServerSelect={setSelectedServer}
+              />
+            ) : (
+              <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
+                <p className="text-slate-400">Loading servers from blockchain...</p>
+              </div>
+            )}
 
             {/* Info Card */}
             <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 rounded-2xl p-6 border border-blue-500/30">
@@ -141,19 +401,23 @@ export default function VPNPage() {
               <ul className="space-y-2 text-sm text-slate-300">
                 <li className="flex items-start gap-2">
                   <span className="text-blue-400 mt-1">✓</span>
-                  <span>Connect your Phantom wallet</span>
+                  <span>Connect your Phantom wallet with DVPN tokens</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-blue-400 mt-1">✓</span>
-                  <span>Select a VPN server location</span>
+                  <span>Select a VPN server from registered nodes</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-blue-400 mt-1">✓</span>
-                  <span>Click connect to start secure session</span>
+                  <span>Click CONNECT - tokens deposit to escrow</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-blue-400 mt-1">✓</span>
-                  <span>Pay with DVPN tokens automatically</span>
+                  <span>Use VPN - bandwidth tracked on-chain</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400 mt-1">✓</span>
+                  <span>Disconnect - tokens paid to node operator</span>
                 </li>
               </ul>
             </div>
@@ -168,24 +432,30 @@ export default function VPNPage() {
             <p className="text-slate-400 text-sm">
               © 2024 solVPN. Built on Solana. Secured by blockchain.
             </p>
-            <div className="flex items-center gap-4">
-              <a href="#" className="text-slate-400 hover:text-white transition-colors">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z" />
-                </svg>
-              </a>
-              <a href="#" className="text-slate-400 hover:text-white transition-colors">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.840 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.430.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-                </svg>
-              </a>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span>Program: {walletAddress ? walletAddress.slice(0, 8) + "..." : "Not connected"}</span>
+              <span>•</span>
+              <span>{servers.length} nodes online</span>
             </div>
           </div>
         </div>
       </footer>
 
-      {/* Custom scrollbar styles */}
+      {/* Animations */}
       <style jsx global>{`
+        @keyframes slide-in {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        .animate-slide-in {
+          animation: slide-in 0.3s ease-out;
+        }
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
         }
@@ -204,4 +474,3 @@ export default function VPNPage() {
     </div>
   );
 }
-

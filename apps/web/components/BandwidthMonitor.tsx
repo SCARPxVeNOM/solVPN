@@ -4,31 +4,61 @@ import { useEffect, useState } from "react";
 
 interface BandwidthMonitorProps {
   isConnected: boolean;
+  bytesTransferred?: number;
+  websocket?: WebSocket | null;
+  sessionStartTime?: number;
 }
 
-export function BandwidthMonitor({ isConnected }: BandwidthMonitorProps) {
+export function BandwidthMonitor({ 
+  isConnected, 
+  bytesTransferred = 0,
+  websocket = null,
+  sessionStartTime = 0 
+}: BandwidthMonitorProps) {
   const [downloadSpeed, setDownloadSpeed] = useState(0);
   const [uploadSpeed, setUploadSpeed] = useState(0);
   const [totalData, setTotalData] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [lastBytes, setLastBytes] = useState(0);
 
+  // Update total data from props
+  useEffect(() => {
+    if (bytesTransferred > 0) {
+      setTotalData(bytesTransferred / (1024 * 1024)); // Convert to MB
+    }
+  }, [bytesTransferred]);
+
+  // Calculate speeds and duration
   useEffect(() => {
     if (!isConnected) {
       setDownloadSpeed(0);
       setUploadSpeed(0);
+      setDuration(0);
+      setLastBytes(0);
       return;
     }
 
     const interval = setInterval(() => {
-      // Simulate bandwidth fluctuation
-      setDownloadSpeed(Math.random() * 50 + 10);
-      setUploadSpeed(Math.random() * 20 + 5);
-      setTotalData(prev => prev + (Math.random() * 2 + 0.5));
-      setDuration(prev => prev + 1);
+      // Calculate speed based on bytes transferred
+      const bytesDelta = bytesTransferred - lastBytes;
+      const speedMBps = (bytesDelta / (1024 * 1024)); // MB per second
+      
+      // Split into download/upload (simulate 70% download, 30% upload)
+      setDownloadSpeed(speedMBps * 0.7);
+      setUploadSpeed(speedMBps * 0.3);
+      setLastBytes(bytesTransferred);
+
+      // Update duration
+      if (sessionStartTime > 0) {
+        const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
+        setDuration(elapsed);
+      } else {
+        setDuration(prev => prev + 1);
+      }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isConnected]);
+  }, [isConnected, bytesTransferred, lastBytes, sessionStartTime]);
 
   const formatSpeed = (mbps: number) => {
     if (mbps < 1) return `${(mbps * 1000).toFixed(0)} KB/s`;
