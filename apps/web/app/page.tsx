@@ -263,6 +263,12 @@ function Dashboard() {
 export default function Home() {
   const endpoint = "https://api.devnet.solana.com";
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <main className="p-8 space-y-6 max-w-4xl mx-auto">
       <div className="flex justify-between items-center">
@@ -271,16 +277,22 @@ export default function Home() {
           🌐 Open VPN Client
         </a>
       </div>
-      <ConnectionProvider endpoint={endpoint}>
-        <WalletProvider wallets={wallets} autoConnect>
-          <WalletModalProvider>
-            <div className="flex justify-end">
-              <WalletMultiButton />
-            </div>
-            <Dashboard />
-          </WalletModalProvider>
-        </WalletProvider>
-      </ConnectionProvider>
+      {mounted ? (
+        <ConnectionProvider endpoint={endpoint}>
+          <WalletProvider wallets={wallets} autoConnect>
+            <WalletModalProvider>
+              <div className="flex justify-end" suppressHydrationWarning>
+                <WalletMultiButton />
+              </div>
+              <Dashboard />
+            </WalletModalProvider>
+          </WalletProvider>
+        </ConnectionProvider>
+      ) : (
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+        </div>
+      )}
     </main>
   );
 }
