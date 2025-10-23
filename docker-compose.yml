@@ -1,0 +1,58 @@
+version: "3.8"
+
+services:
+  attestor:
+    build:
+      context: .
+      dockerfile: services/attestor/Dockerfile
+    container_name: dvpn-attestor
+    ports:
+      - "8787:8787"
+    environment:
+      - PORT=8787
+      - SOLANA_RPC=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      - PROGRAM_ID=${PROGRAM_ID}
+      - ATTESTOR_SECRET_KEY=${ATTESTOR_SECRET_KEY}
+    restart: unless-stopped
+    networks:
+      - dvpn-network
+
+  node-operator:
+    build:
+      context: .
+      dockerfile: services/node-operator/Dockerfile
+    container_name: dvpn-node-operator
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - SOLANA_RPC=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      - PROGRAM_ID=${PROGRAM_ID}
+      - NODE_PRICE_PER_MB=${NODE_PRICE_PER_MB:-100}
+    restart: unless-stopped
+    networks:
+      - dvpn-network
+    depends_on:
+      - attestor
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: dvpn-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_SOLANA_RPC=${NEXT_PUBLIC_SOLANA_RPC:-https://api.devnet.solana.com}
+      - NEXT_PUBLIC_PROGRAM_ID=${NEXT_PUBLIC_PROGRAM_ID}
+      - NEXT_PUBLIC_ATTESTOR_URL=http://attestor:8787
+    restart: unless-stopped
+    networks:
+      - dvpn-network
+    depends_on:
+      - attestor
+
+networks:
+  dvpn-network:
+    driver: bridge
+

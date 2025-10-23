@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount};
+use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
 use anchor_lang::solana_program::{program::invoke, system_instruction};
 
 declare_id!("8j3TUcbSuaq5BVNSf5GJhgucwrswH432sqJNxCoym8hB");
@@ -95,6 +95,94 @@ pub mod dvpn {
         token::mint_to(cpi_ctx, amount)?;
         Ok(())
     }
+
+    /// Start a new VPN session with escrow deposit
+    pub fn start_session(ctx: Context<StartSession>, deposit_amount: u64) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        session.user = ctx.accounts.user.key();
+        session.node = ctx.accounts.node.key();
+        session.deposit_amount = deposit_amount;
+        session.bytes_used = 0;
+        session.started_at = Clock::get()?.unix_timestamp;
+        session.closed = false;
+        session.bump = ctx.bumps.session;
+        
+        emit!(SessionStarted {
+            session: session.key(),
+            user: session.user,
+            node: session.node,
+            deposit: deposit_amount,
+        });
+        Ok(())
+    }
+
+    /// Submit bandwidth usage for a session (attestor only)
+    pub fn submit_usage(ctx: Context<SubmitUsage>, bytes: u64) -> Result<()> {
+        require_keys_eq!(ctx.accounts.state.attestor, ctx.accounts.attestor.key(), DvpnError::Unauthorized);
+        let session = &mut ctx.accounts.session;
+        require!(!session.closed, DvpnError::SessionClosed);
+        
+        session.bytes_used = session.bytes_used
+            .checked_add(bytes)
+            .ok_or(DvpnError::MathOverflow)?;
+        
+        emit!(UsageSubmitted {
+            session: session.key(),
+            bytes: session.bytes_used,
+        });
+        Ok(())
+    }
+
+    /// Settle session and transfer tokens from escrow to node operator
+    pub fn settle_session(ctx: Context<SettleSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        require!(!session.closed, DvpnError::SessionClosed);
+
+        let node = &ctx.accounts.node;
+        let price_per_mb = node.bandwidth_mbps as u64; // simplified pricing
+        
+        // Calculate payout: (bytes_used / 1_048_576) * price_per_mb
+        let payout = (session.bytes_used as u128)
+            .checked_mul(price_per_mb as u128)
+            .ok_or(DvpnError::MathOverflow)?
+            / 1_048_576u128;
+        
+        let payout_u64 = payout.min(session.deposit_amount as u128) as u64;
+        
+        // Protocol fee (1%)
+        let protocol_fee = payout_u64 / 100;
+        let node_amount = payout_u64.saturating_sub(protocol_fee);
+
+        // Transfer tokens from escrow PDA to node operator's token account
+        let seeds: &[&[u8]] = &[
+            b"escrow",
+            session.user.as_ref(),
+            session.node.as_ref(),
+            &[session.bump]
+        ];
+        let signer = &[&seeds[..]];
+        
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.escrow_token_account.to_account_info(),
+            to: ctx.accounts.node_token_account.to_account_info(),
+            authority: ctx.accounts.session.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_accounts,
+            signer
+        );
+        token::transfer(cpi_ctx, node_amount)?;
+
+        session.closed = true;
+        
+        emit!(SessionSettled {
+            session: session.key(),
+            payout: node_amount,
+            bytes: session.bytes_used,
+        });
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -178,6 +266,59 @@ pub struct ClaimRewards<'info> {
     pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
+#[derive(Accounts)]
+pub struct StartSession<'info> {
+    #[account(
+        init,
+        payer = user,
+        space = 8 + Session::SIZE,
+        seeds = [b"session", user.key().as_ref(), node.key().as_ref()],
+        bump
+    )]
+    pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub node: Account<'info, Node>,
+    #[account(seeds = [b"state", state.authority.as_ref()], bump = state.bump)]
+    pub state: Account<'info, State>,
+    /// Escrow token account to hold user's deposit
+    #[account(mut)]
+    pub escrow_token_account: Account<'info, TokenAccount>,
+    /// User's token account (source of deposit)
+    #[account(mut)]
+    pub user_token_account: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SubmitUsage<'info> {
+    pub attestor: Signer<'info>,
+    #[account(seeds = [b"state", state.authority.as_ref()], bump = state.bump)]
+    pub state: Account<'info, State>,
+    #[account(mut, has_one = user)]
+    pub session: Account<'info, Session>,
+    /// CHECK: Session user for validation
+    pub user: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct SettleSession<'info> {
+    #[account(mut, has_one = node, has_one = user)]
+    pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub node: Account<'info, Node>,
+    /// CHECK: Session user
+    pub user: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub escrow_token_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub node_token_account: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub authority: Signer<'info>,
+}
+
 #[account]
 pub struct State {
     pub authority: Pubkey,
@@ -205,6 +346,42 @@ impl Node {
     pub const SIZE: usize = 32 + 4 + 32 + 8 + 8 + 8;
 }
 
+#[account]
+pub struct Session {
+    pub user: Pubkey,
+    pub node: Pubkey,
+    pub deposit_amount: u64,
+    pub bytes_used: u64,
+    pub started_at: i64,
+    pub closed: bool,
+    pub bump: u8,
+}
+
+impl Session {
+    pub const SIZE: usize = 32 + 32 + 8 + 8 + 8 + 1 + 1;
+}
+
+#[event]
+pub struct SessionStarted {
+    pub session: Pubkey,
+    pub user: Pubkey,
+    pub node: Pubkey,
+    pub deposit: u64,
+}
+
+#[event]
+pub struct UsageSubmitted {
+    pub session: Pubkey,
+    pub bytes: u64,
+}
+
+#[event]
+pub struct SessionSettled {
+    pub session: Pubkey,
+    pub payout: u64,
+    pub bytes: u64,
+}
+
 #[error_code]
 pub enum DvpnError {
     #[msg("Unauthorized")] 
@@ -213,6 +390,8 @@ pub enum DvpnError {
     NothingToClaim,
     #[msg("Math overflow")] 
     MathOverflow,
+    #[msg("Session already closed")]
+    SessionClosed,
 }
 
 

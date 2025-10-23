@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Install Solana
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v1.17.0/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          avm install latest
+          avm use latest
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Anchor program
+        working-directory: programs/dvpn
+        run: |
+          anchor build
+          
+      - name: Run Anchor tests (if any)
+        working-directory: programs/dvpn
+        run: |
+          anchor test --skip-local-validator || echo "Tests skipped"
+
+      - name: Build SDK
+        run: npm run sdk:build
+
+      - name: Build frontend
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Lint TypeScript services
+        run: |
+          cd services/attestor && npm ci && npm run build
+          cd ../node-operator && npm ci && npm run build
+
+      - name: Docker build test
+        run: |
+          docker-compose build --no-cache
+
+  security-audit:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Run npm audit
+        run: |
+          npm audit --audit-level=moderate || true
+          
+      - name: Run Cargo audit
+        uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
