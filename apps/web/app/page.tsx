@@ -267,6 +267,9 @@ export default function Home() {
     <main className="p-8 space-y-6 max-w-4xl mx-auto">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">solVPN Node Operator</h1>
+        <a href="/vpn" className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/30">
+          🌐 Open VPN Client
+        </a>
       </div>
       <ConnectionProvider endpoint={endpoint}>
         <WalletProvider wallets={wallets} autoConnect>
