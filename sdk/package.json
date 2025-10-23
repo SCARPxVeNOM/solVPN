@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && xcopy /E /I /Y src\\idl dist\\idl",
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/idl', 'dist/idl', {recursive: true})\"",
     "clean": "rimraf dist"
   },
   "dependencies": {
