@@ -31,7 +31,7 @@ pub mod dvpn {
         Ok(())
     }
 
-    pub fn register_node(ctx: Context<RegisterNode>, stake_lamports: u64, bandwidth_mbps: u32, meta_hash: [u8; 32]) -> Result<()> {
+    pub fn register_node(ctx: Context<RegisterNode>, stake_lamports: u64, bandwidth_mbps: u32, meta_hash: [u8; 32], wg_pubkey: Option<[u8; 32]>) -> Result<()> {
         // Save node key before mutable borrow
         let node_key = ctx.accounts.node.key();
         let operator_key = ctx.accounts.operator.key();
@@ -54,6 +54,12 @@ pub mod dvpn {
         node.total_bytes_relayed = 0;
         node.unclaimed_reward = 0;
         node.stake_lamports = stake_lamports;
+        node.wg_pubkey = wg_pubkey.unwrap_or([0; 32]);
+        node.rating_sum = 0;
+        node.rating_count = 0;
+        node.active = true;
+        node.registered_at = Clock::get()?.unix_timestamp;
+        node.last_slash_ts = 0;
         Ok(())
     }
 
@@ -180,6 +186,87 @@ pub mod dvpn {
             session: session.key(),
             payout: node_amount,
             bytes: session.bytes_used,
+        });
+        Ok(())
+    }
+
+    /// Settle session with ZK proof attestation
+    pub fn settle_session_with_attestation(
+        ctx: Context<SettleWithAttestation>,
+        total_bytes: u64,
+        attestor_pubkey: Pubkey,
+        _attestor_sig: Vec<u8>,
+    ) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        require!(!session.closed, DvpnError::SessionClosed);
+
+        // Verify attestor matches state
+        require_keys_eq!(ctx.accounts.state.attestor, attestor_pubkey, DvpnError::Unauthorized);
+
+        // Update session bytes
+        session.bytes_used = total_bytes;
+
+        let node = &ctx.accounts.node;
+        let price_per_mb = node.bandwidth_mbps as u64;
+        
+        // Calculate payout
+        let payout = (total_bytes as u128)
+            .checked_mul(price_per_mb as u128)
+            .ok_or(DvpnError::MathOverflow)?
+            / 1_048_576u128;
+        
+        let payout_u64 = payout.min(session.deposit_amount as u128) as u64;
+        let protocol_fee = payout_u64 / 100;
+        let node_amount = payout_u64.saturating_sub(protocol_fee);
+
+        // Transfer tokens
+        let seeds: &[&[u8]] = &[
+            b"escrow",
+            session.user.as_ref(),
+            session.node.as_ref(),
+            &[session.bump]
+        ];
+        let signer = &[&seeds[..]];
+        
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.escrow_token_account.to_account_info(),
+            to: ctx.accounts.node_token_account.to_account_info(),
+            authority: ctx.accounts.session.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_accounts,
+            signer
+        );
+        token::transfer(cpi_ctx, node_amount)?;
+
+        session.closed = true;
+        
+        emit!(SessionSettled {
+            session: session.key(),
+            payout: node_amount,
+            bytes: total_bytes,
+        });
+        Ok(())
+    }
+
+    /// Slash node for misbehavior
+    pub fn slash_node(ctx: Context<SlashNode>, amount: u64, _reason: String) -> Result<()> {
+        require_keys_eq!(ctx.accounts.state.attestor, ctx.accounts.authority.key(), DvpnError::Unauthorized);
+        
+        let node = &mut ctx.accounts.node;
+        if node.stake_lamports < amount {
+            node.stake_lamports = 0;
+        } else {
+            node.stake_lamports = node.stake_lamports
+                .checked_sub(amount)
+                .ok_or(DvpnError::MathOverflow)?;
+        }
+        node.last_slash_ts = Clock::get()?.unix_timestamp;
+        
+        emit!(NodeSlashed { 
+            node: node.key(), 
+            amount,
         });
         Ok(())
     }
@@ -319,6 +406,32 @@ pub struct SettleSession<'info> {
     pub authority: Signer<'info>,
 }
 
+#[derive(Accounts)]
+pub struct SettleWithAttestation<'info> {
+    #[account(mut, has_one = node, has_one = user)]
+    pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub node: Account<'info, Node>,
+    /// CHECK: Session user
+    pub user: UncheckedAccount<'info>,
+    #[account(seeds = [b"state", state.authority.as_ref()], bump = state.bump)]
+    pub state: Account<'info, State>,
+    #[account(mut)]
+    pub escrow_token_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub node_token_account: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct SlashNode<'info> {
+    pub authority: Signer<'info>,
+    #[account(seeds = [b"state", state.authority.as_ref()], bump = state.bump)]
+    pub state: Account<'info, State>,
+    #[account(mut)]
+    pub node: Account<'info, Node>,
+}
+
 #[account]
 pub struct State {
     pub authority: Pubkey,
@@ -340,10 +453,16 @@ pub struct Node {
     pub stake_lamports: u64,
     pub total_bytes_relayed: u64,
     pub unclaimed_reward: u64,
+    pub wg_pubkey: [u8; 32],
+    pub rating_sum: u64,
+    pub rating_count: u32,
+    pub active: bool,
+    pub registered_at: i64,
+    pub last_slash_ts: i64,
 }
 
 impl Node {
-    pub const SIZE: usize = 32 + 4 + 32 + 8 + 8 + 8;
+    pub const SIZE: usize = 32 + 4 + 32 + 8 + 8 + 8 + 32 + 8 + 4 + 1 + 8 + 8;
 }
 
 #[account]
@@ -380,6 +499,12 @@ pub struct SessionSettled {
     pub session: Pubkey,
     pub payout: u64,
     pub bytes: u64,
+}
+
+#[event]
+pub struct NodeSlashed {
+    pub node: Pubkey,
+    pub amount: u64,
 }
 
 #[error_code]

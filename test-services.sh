@@ -39,3 +39,4 @@ echo "2. Connect Phantom wallet"
 echo "3. Use the operator dashboard!"
 echo ""
 
+

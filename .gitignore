@@ -24,3 +24,9 @@ circuits/**/*.wtns
 circuits/**/*.r1cs
 circuits/**/*.wasm
 circuits/**/pot*.ptau
+
+# WireGuard keys and configs
+**/wg-keys/
+**/*_private.key
+**/*-keypair.json
+attestor-keypair.json

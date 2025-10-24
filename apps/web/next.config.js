@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
+  reactStrictMode: false, // Disable strict mode to avoid double-rendering issues
   
   webpack: (config, { isServer }) => {
     // Silence optional pretty printer resolution warnings from pino
@@ -20,6 +20,11 @@ const nextConfig = {
     }
     
     return config;
+  },
+  
+  // Custom build ID to ensure fresh builds
+  generateBuildId: async () => {
+    return 'build-' + Date.now()
   },
 };
 
