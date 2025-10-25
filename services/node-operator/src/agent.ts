@@ -5,6 +5,7 @@ import { readClientConfig } from "./wg-manager.js";
 import * as dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
 
 // Load .env from project root
 const __filename = fileURLToPath(import.meta.url);
@@ -34,8 +35,9 @@ anchor.setProvider(provider);
 
 let program: anchor.Program;
 try {
-  const idl = require("../../sdk/src/idl/dvpn.json");
-  program = new anchor.Program(idl, new PublicKey(PROGRAM_ID), provider);
+  const idlPath = path.resolve(__dirname, "../../sdk/src/idl/dvpn.json");
+  const idlJson = JSON.parse(fs.readFileSync(idlPath, "utf8"));
+  program = new anchor.Program(idlJson, new PublicKey(PROGRAM_ID), provider);
 } catch (e) {
   console.error("Failed to load program IDL:", e);
   process.exit(1);
