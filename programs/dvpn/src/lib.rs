@@ -176,12 +176,22 @@ pub mod dvpn {
         let protocol_fee = payout_u64 / 100;
         let node_amount = payout_u64.saturating_sub(protocol_fee);
 
+        // Store values before closing to avoid borrow conflicts
+        let session_key = session.key();
+        let bytes_used = session.bytes_used;
+        let user_key = session.user;
+        let node_key = session.node;
+        let bump = session.bump;
+
+        // Mark session as closed
+        session.closed = true;
+
         // Transfer tokens from escrow PDA to node operator's token account
         let seeds: &[&[u8]] = &[
             b"escrow",
-            session.user.as_ref(),
-            session.node.as_ref(),
-            &[session.bump]
+            user_key.as_ref(),
+            node_key.as_ref(),
+            &[bump]
         ];
         let signer = &[&seeds[..]];
         
@@ -196,13 +206,11 @@ pub mod dvpn {
             signer
         );
         token::transfer(cpi_ctx, node_amount)?;
-
-        session.closed = true;
         
         emit!(SessionSettled {
-            session: session.key(),
+            session: session_key,
             payout: node_amount,
-            bytes: session.bytes_used,
+            bytes: bytes_used,
         });
         Ok(())
     }
@@ -236,12 +244,21 @@ pub mod dvpn {
         let protocol_fee = payout_u64 / 100;
         let node_amount = payout_u64.saturating_sub(protocol_fee);
 
+        // Store values before closing to avoid borrow conflicts
+        let session_key = session.key();
+        let user_key = session.user;
+        let node_key = session.node;
+        let bump = session.bump;
+
+        // Mark session as closed
+        session.closed = true;
+
         // Transfer tokens
         let seeds: &[&[u8]] = &[
             b"escrow",
-            session.user.as_ref(),
-            session.node.as_ref(),
-            &[session.bump]
+            user_key.as_ref(),
+            node_key.as_ref(),
+            &[bump]
         ];
         let signer = &[&seeds[..]];
         
@@ -256,11 +273,9 @@ pub mod dvpn {
             signer
         );
         token::transfer(cpi_ctx, node_amount)?;
-
-        session.closed = true;
         
         emit!(SessionSettled {
-            session: session.key(),
+            session: session_key,
             payout: node_amount,
             bytes: total_bytes,
         });
