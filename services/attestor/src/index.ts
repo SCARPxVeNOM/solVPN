@@ -218,27 +218,22 @@ app.post("/faucet", async (req, res) => {
       tx.add(createAtaIx);
     }
     
-    // Add mint_to instruction (need to call program or directly mint if we have mint authority)
-    // Since we can't directly mint, let's use the program's mint instruction if it exists
-    // For now, send tokens from attestor's account (assuming attestor has tokens)
-    const attestorTokenAccount = getAssociatedTokenAddressSync(mint, wallet.publicKey, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
-    
-    // Build transfer instruction
-    const transferDisc = Buffer.from([3]); // SPL Token Transfer instruction
+    // Use SPL Token MintTo instruction directly (attestor is mint authority)
+    const mintToDisc = Buffer.from([7]); // SPL Token MintTo instruction discriminator
     const amountBuf = Buffer.alloc(8);
     amountBuf.writeBigUInt64LE(BigInt(amount));
-    const transferData = Buffer.concat([transferDisc, amountBuf]);
+    const mintToData = Buffer.concat([mintToDisc, amountBuf]);
     
-    const transferIx = new TransactionInstruction({
+    const mintToIx = new TransactionInstruction({
       programId: TOKEN_PROGRAM_ID,
       keys: [
-        { pubkey: attestorTokenAccount, isSigner: false, isWritable: true }, // source
+        { pubkey: mint, isSigner: false, isWritable: true }, // mint account
         { pubkey: userTokenAccount, isSigner: false, isWritable: true }, // destination
-        { pubkey: wallet.publicKey, isSigner: true, isWritable: false }, // authority
+        { pubkey: wallet.publicKey, isSigner: true, isWritable: false }, // mint authority (attestor)
       ],
-      data: transferData,
+      data: mintToData,
     });
-    tx.add(transferIx);
+    tx.add(mintToIx);
     
     // Sign and send
     tx.sign(wallet);
@@ -250,7 +245,7 @@ app.post("/faucet", async (req, res) => {
       signature, 
       amount, 
       userTokenAccount: userTokenAccount.toBase58(),
-      message: `Sent ${(amount / 1e9).toFixed(2)} DVPN tokens to ${user}` 
+      message: `Minted ${(amount / 1e9).toFixed(2)} DVPN tokens to ${user}` 
     });
   } catch (e: any) {
     console.error("faucet error:", e);
