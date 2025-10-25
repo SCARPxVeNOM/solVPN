@@ -119,6 +119,39 @@ export default function VPNPage() {
     }
   };
 
+  const handleGetTokens = async () => {
+    if (!walletAddress) {
+      setError("Please connect Phantom wallet first");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const response = await fetch(`${ATTESTOR_URL}/faucet`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user: walletAddress,
+          amount: 1000000000, // 1000 DVPN tokens
+        }),
+      });
+
+      const data = await response.json();
+      if (!data.ok) throw new Error(data.error || "Failed to get tokens");
+
+      setSuccess(`${data.message} - TX: ${data.signature.slice(0, 8)}...`);
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (error: any) {
+      console.error("Faucet error:", error);
+      setError(error.message || "Failed to get tokens");
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleVPNToggle = async () => {
     if (!walletAddress || !phantom) {
       setError("Please connect your wallet first!");
@@ -291,6 +324,15 @@ export default function VPNPage() {
             </div>
 
             <div className="flex items-center gap-4">
+              {walletAddress && (
+                <button 
+                  onClick={handleGetTokens}
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50"
+                >
+                  {isLoading ? "⏳ Getting..." : "🪙 Get Test Tokens"}
+                </button>
+              )}
               <a href="/" className="text-slate-400 hover:text-white transition-colors">
                 <button className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">
                   Node Operator →

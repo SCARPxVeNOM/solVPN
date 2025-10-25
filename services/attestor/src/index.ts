@@ -176,6 +176,88 @@ app.get("/state", async (_req, res) => {
   }
 });
 
+// Faucet endpoint - mint tokens to user for testing
+const faucetSchema = z.object({
+  user: z.string(),
+  amount: z.number().optional(),
+});
+
+app.post("/faucet", async (req, res) => {
+  try {
+    const { user, amount = 1000000000 } = faucetSchema.parse(req.body); // Default 1000 tokens (9 decimals)
+    const userPk = new PublicKey(user);
+    
+    // Get state and mint
+    const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("state"), wallet.publicKey.toBuffer()], programId);
+    const stateAcc = await connection.getAccountInfo(statePda);
+    if (!stateAcc) throw new Error("State account not found");
+    const mint = new PublicKey(stateAcc.data.slice(8 + 32 + 32, 8 + 32 + 32 + 32));
+    
+    // Calculate user's token account
+    const userTokenAccount = getAssociatedTokenAddressSync(mint, userPk, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    
+    // Build transaction
+    const { blockhash } = await connection.getLatestBlockhash();
+    const tx = new Transaction({ feePayer: wallet.publicKey, recentBlockhash: blockhash });
+    
+    // Check if user's token account exists, create if not
+    const userTokenInfo = await connection.getAccountInfo(userTokenAccount);
+    if (!userTokenInfo) {
+      const createAtaIx = new TransactionInstruction({
+        programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true }, // payer
+          { pubkey: userTokenAccount, isSigner: false, isWritable: true }, // associated_token_address
+          { pubkey: userPk, isSigner: false, isWritable: false }, // owner
+          { pubkey: mint, isSigner: false, isWritable: false }, // mint
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // system_program
+          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // token_program
+        ],
+        data: Buffer.alloc(0),
+      });
+      tx.add(createAtaIx);
+    }
+    
+    // Add mint_to instruction (need to call program or directly mint if we have mint authority)
+    // Since we can't directly mint, let's use the program's mint instruction if it exists
+    // For now, send tokens from attestor's account (assuming attestor has tokens)
+    const attestorTokenAccount = getAssociatedTokenAddressSync(mint, wallet.publicKey, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    
+    // Build transfer instruction
+    const transferDisc = Buffer.from([3]); // SPL Token Transfer instruction
+    const amountBuf = Buffer.alloc(8);
+    amountBuf.writeBigUInt64LE(BigInt(amount));
+    const transferData = Buffer.concat([transferDisc, amountBuf]);
+    
+    const transferIx = new TransactionInstruction({
+      programId: TOKEN_PROGRAM_ID,
+      keys: [
+        { pubkey: attestorTokenAccount, isSigner: false, isWritable: true }, // source
+        { pubkey: userTokenAccount, isSigner: false, isWritable: true }, // destination
+        { pubkey: wallet.publicKey, isSigner: true, isWritable: false }, // authority
+      ],
+      data: transferData,
+    });
+    tx.add(transferIx);
+    
+    // Sign and send
+    tx.sign(wallet);
+    const signature = await connection.sendRawTransaction(tx.serialize());
+    await connection.confirmTransaction(signature);
+    
+    res.json({ 
+      ok: true, 
+      signature, 
+      amount, 
+      userTokenAccount: userTokenAccount.toBase58(),
+      message: `Sent ${(amount / 1e9).toFixed(2)} DVPN tokens to ${user}` 
+    });
+  } catch (e: any) {
+    console.error("faucet error:", e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // Fetch all registered nodes
 app.get("/nodes", async (_req, res) => {
   try {
@@ -222,7 +304,36 @@ app.post("/start-session-tx", async (req, res) => {
     
     // Calculate token accounts
     const escrowTokenAccount = getAssociatedTokenAddressSync(mint, sessionPda, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
-    const userTokenAccount = getAssociatedTokenAddressSync(mint, userPk, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    const userTokenAccount = getAssociatedTokenAddressSync(mint, userPk, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    
+    // Check if user token account exists
+    const userTokenInfo = await connection.getAccountInfo(userTokenAccount);
+    if (!userTokenInfo) {
+      throw new Error(`User token account not found. Please create your DVPN token account first at: ${userTokenAccount.toBase58()}`);
+    }
+    
+    // Build transaction with instructions
+    const { blockhash } = await connection.getLatestBlockhash();
+    const tx = new Transaction({ feePayer: userPk, recentBlockhash: blockhash });
+    
+    // Check if escrow token account exists, create if not
+    const escrowInfo = await connection.getAccountInfo(escrowTokenAccount);
+    if (!escrowInfo) {
+      // Add instruction to create escrow ATA
+      const createAtaIx = new TransactionInstruction({
+        programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+        keys: [
+          { pubkey: userPk, isSigner: true, isWritable: true }, // payer
+          { pubkey: escrowTokenAccount, isSigner: false, isWritable: true }, // associated_token_address
+          { pubkey: sessionPda, isSigner: false, isWritable: false }, // owner (session PDA)
+          { pubkey: mint, isSigner: false, isWritable: false }, // mint
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // system_program
+          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // token_program
+        ],
+        data: Buffer.alloc(0), // create_associated_token_account has no args
+      });
+      tx.add(createAtaIx);
+    }
     
     // Build start_session instruction discriminator
     const disc = createHash("sha256").update("global:start_session").digest().subarray(0, 8);
@@ -241,9 +352,9 @@ app.post("/start-session-tx", async (req, res) => {
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ];
     
-    const ix = new TransactionInstruction({ programId, keys, data });
-    const { blockhash } = await connection.getLatestBlockhash();
-    const tx = new Transaction({ feePayer: userPk, recentBlockhash: blockhash }).add(ix);
+    const startSessionIx = new TransactionInstruction({ programId, keys, data });
+    tx.add(startSessionIx);
+    
     const b64 = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
     
     res.json({ ok: true, tx: b64, sessionPda: sessionPda.toBase58() });
