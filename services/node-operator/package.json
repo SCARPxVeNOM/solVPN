@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "agent": "tsx src/agent.ts",
+    "agent": "tsx src/agent-simple.ts",
+    "agent-full": "tsx src/agent.ts",
     "client": "tsx src/ping-client.ts",
     "build": "tsc -p tsconfig.json",
     "clean": "rimraf dist"
