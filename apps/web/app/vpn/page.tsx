@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { VPNMap } from "../../components/VPNMap";
 import { ConnectButton } from "../../components/ConnectButton";
 import { ServerList } from "../../components/ServerList";
@@ -156,11 +156,19 @@ export default function VPNPage() {
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "Failed to build transaction");
 
-        // Sign and send via Phantom
+        // Deserialize and sign transaction via Phantom
+        const connection = new Connection(SOLANA_RPC, "confirmed");
         const txBuffer = Buffer.from(data.tx, "base64");
-        const signed = await phantom.signAndSendTransaction({
-          message: txBuffer,
-        });
+        const transaction = Transaction.from(txBuffer);
+        
+        // Get recent blockhash
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = new PublicKey(walletAddress);
+        
+        // Sign and send
+        const { signature } = await phantom.signAndSendTransaction(transaction);
+        console.log("Session started, signature:", signature);
 
         setSuccess("Session started! Connecting to VPN...");
         setTimeout(() => setSuccess(null), 3000);
@@ -186,10 +194,19 @@ export default function VPNPage() {
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "Failed to build transaction");
 
+        // Deserialize and sign transaction
+        const connection = new Connection(SOLANA_RPC, "confirmed");
         const txBuffer = Buffer.from(data.tx, "base64");
-        await phantom.signAndSendTransaction({
-          message: txBuffer,
-        });
+        const transaction = Transaction.from(txBuffer);
+        
+        // Get recent blockhash
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = new PublicKey(walletAddress);
+        
+        // Sign and send
+        const { signature } = await phantom.signAndSendTransaction(transaction);
+        console.log("Session settled, signature:", signature);
 
         setSuccess("Session settled! Tokens transferred to node operator.");
         setTimeout(() => setSuccess(null), 3000);
