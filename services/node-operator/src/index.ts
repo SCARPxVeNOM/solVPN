@@ -1,5 +1,13 @@
 import fetch from "node-fetch";
 import WebSocket, { WebSocketServer } from "ws";
+import * as dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Load .env from project root
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
 const ATTESTOR_URL = process.env.ATTESTOR_URL || "http://localhost:8787";
 const OPERATOR_PUBKEY = process.env.OPERATOR_PUBKEY || "";

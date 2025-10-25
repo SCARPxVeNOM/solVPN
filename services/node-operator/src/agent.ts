@@ -2,6 +2,14 @@ import express from "express";
 import { PublicKey, Connection, clusterApiUrl } from "@solana/web3.js";
 import * as anchor from "@coral-xyz/anchor";
 import { readClientConfig } from "./wg-manager.js";
+import * as dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Load .env from project root
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
 const app = express();
 app.use(express.json());
