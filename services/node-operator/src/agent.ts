@@ -33,13 +33,14 @@ const provider = new anchor.AnchorProvider(
 );
 anchor.setProvider(provider);
 
+const idlPath = path.resolve(__dirname, "../../../sdk/src/idl/dvpn.json");
 let program: anchor.Program;
 try {
-  const idlPath = path.resolve(__dirname, "../../sdk/src/idl/dvpn.json");
   const idlJson = JSON.parse(fs.readFileSync(idlPath, "utf8"));
   program = new anchor.Program(idlJson, new PublicKey(PROGRAM_ID), provider);
 } catch (e) {
   console.error("Failed to load program IDL:", e);
+  console.error("Looking for IDL at:", idlPath);
   process.exit(1);
 }
 
