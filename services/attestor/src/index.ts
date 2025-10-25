@@ -215,6 +215,15 @@ app.post("/start-session-tx", async (req, res) => {
     const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("state"), wallet.publicKey.toBuffer()], programId);
     const [sessionPda] = PublicKey.findProgramAddressSync([Buffer.from("session"), userPk.toBuffer(), nodePk.toBuffer()], programId);
     
+    // Get mint from state
+    const stateAcc = await connection.getAccountInfo(statePda);
+    if (!stateAcc) throw new Error("State account not found");
+    const mint = new PublicKey(stateAcc.data.slice(8 + 32 + 32, 8 + 32 + 32 + 32));
+    
+    // Calculate token accounts
+    const escrowTokenAccount = getAssociatedTokenAddressSync(mint, sessionPda, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    const userTokenAccount = getAssociatedTokenAddressSync(mint, userPk, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    
     // Build start_session instruction discriminator
     const disc = createHash("sha256").update("global:start_session").digest().subarray(0, 8);
     const amountBuf = Buffer.alloc(8);
@@ -226,8 +235,8 @@ app.post("/start-session-tx", async (req, res) => {
       { pubkey: userPk, isSigner: true, isWritable: true },
       { pubkey: nodePk, isSigner: false, isWritable: true },
       { pubkey: statePda, isSigner: false, isWritable: false },
-      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: false }, // Escrow token account (placeholder)
-      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: false }, // User token account (placeholder)
+      { pubkey: escrowTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: userTokenAccount, isSigner: false, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ];
@@ -237,8 +246,9 @@ app.post("/start-session-tx", async (req, res) => {
     const tx = new Transaction({ feePayer: userPk, recentBlockhash: blockhash }).add(ix);
     const b64 = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
     
-    res.json({ ok: true, tx: b64 });
+    res.json({ ok: true, tx: b64, sessionPda: sessionPda.toBase58() });
   } catch (e: any) {
+    console.error("start-session-tx error:", e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -255,7 +265,22 @@ app.post("/settle-session-tx", async (req, res) => {
     const userPk = new PublicKey(user);
     const nodePk = new PublicKey(node);
     
+    const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("state"), wallet.publicKey.toBuffer()], programId);
     const [sessionPda] = PublicKey.findProgramAddressSync([Buffer.from("session"), userPk.toBuffer(), nodePk.toBuffer()], programId);
+    
+    // Get mint from state
+    const stateAcc = await connection.getAccountInfo(statePda);
+    if (!stateAcc) throw new Error("State account not found");
+    const mint = new PublicKey(stateAcc.data.slice(8 + 32 + 32, 8 + 32 + 32 + 32));
+    
+    // Get node operator pubkey from node account
+    const nodeAcc = await connection.getAccountInfo(nodePk);
+    if (!nodeAcc) throw new Error("Node account not found");
+    const nodeOperator = new PublicKey(nodeAcc.data.slice(8, 40)); // operator pubkey at offset 8
+    
+    // Calculate token accounts
+    const escrowTokenAccount = getAssociatedTokenAddressSync(mint, sessionPda, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    const nodeTokenAccount = getAssociatedTokenAddressSync(mint, nodeOperator, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
     
     const disc = createHash("sha256").update("global:settle_session").digest().subarray(0, 8);
     const data = Buffer.from(disc);
@@ -264,10 +289,10 @@ app.post("/settle-session-tx", async (req, res) => {
       { pubkey: sessionPda, isSigner: false, isWritable: true },
       { pubkey: nodePk, isSigner: false, isWritable: true },
       { pubkey: userPk, isSigner: false, isWritable: false },
-      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: true }, // Escrow token
-      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: true }, // Node token
+      { pubkey: escrowTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: nodeTokenAccount, isSigner: false, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: wallet.publicKey, isSigner: true, isWritable: false }, // Authority
+      { pubkey: userPk, isSigner: true, isWritable: false }, // User must sign to settle their own session
     ];
     
     const ix = new TransactionInstruction({ programId, keys, data });
@@ -277,6 +302,7 @@ app.post("/settle-session-tx", async (req, res) => {
     
     res.json({ ok: true, tx: b64 });
   } catch (e: any) {
+    console.error("settle-session-tx error:", e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
