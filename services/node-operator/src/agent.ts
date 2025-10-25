@@ -1,7 +1,7 @@
 import express from "express";
 import { PublicKey, Connection, clusterApiUrl } from "@solana/web3.js";
-import * as anchor from "@project-serum/anchor";
-import { readClientConfig } from "./wg-manager";
+import * as anchor from "@coral-xyz/anchor";
+import { readClientConfig } from "./wg-manager.js";
 
 const app = express();
 app.use(express.json());

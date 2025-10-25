@@ -1,5 +1,5 @@
 // attestor.ts - ZK proof verification and settlement attestation
-import * as anchor from "@project-serum/anchor";
+import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, Keypair, Connection, clusterApiUrl } from "@solana/web3.js";
 import { execSync } from "child_process";
 import nacl from "tweetnacl";

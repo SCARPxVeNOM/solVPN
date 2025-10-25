@@ -6,7 +6,7 @@ BUILD_DIR=build
 mkdir -p $BUILD_DIR
 
 # compile
-circom circuits/${CIRCUIT}.circom --r1cs --wasm --sym -o $BUILD_DIR
+circom ${CIRCUIT}.circom --r1cs --wasm --sym -o $BUILD_DIR
 
 # NOTE: You need a ptau file. Download pot12_final.ptau or generate (large).
 PTAU=pot12_final.ptau
