@@ -1,0 +1,203 @@
+🚀 solVPN WireGuard Integration - Quick Start Guide
+===================================================
+
+📦 PREREQUISITES
+----------------
+✓ Node.js 20+ installed
+✓ Rust and Anchor CLI installed
+✓ Solana CLI configured for devnet
+✓ WireGuard tools installed (for VPN functionality)
+✓ snarkjs installed globally (npm install -g snarkjs)
+
+🔧 SETUP STEPS
+--------------
+
+1. INSTALL DEPENDENCIES
+   npm install
+
+2. START ALL SERVICES (Easiest Method)
+   powershell -ExecutionPolicy Bypass -File start-complete-system.ps1
+   
+   This will start:
+   - Attestor Service (Port 8787)
+   - Node Operator WebSocket (Port 3001) 
+   - Node Operator Agent (Port 8788)
+   - Web Frontend (Port 3000)
+
+3. MANUAL SERVICE STARTUP (Alternative)
+   
+   Terminal 1 - Attestor:
+   cd services/attestor
+   npm run dev
+   
+   Terminal 2 - Node Operator (VPN Traffic):
+   cd services/node-operator
+   npm run dev
+   
+   Terminal 3 - Node Operator Agent (WireGuard):
+   cd services/node-operator
+   npm run agent
+   
+   Terminal 4 - Frontend:
+   cd apps/web
+   npm run dev
+
+🔑 WIREGUARD KEY GENERATION
+---------------------------
+
+The keys are automatically generated on first run, but you can regenerate them:
+
+cd services/node-operator
+bash scripts/gen-wg-config.sh
+
+Or manually set NODE_ENDPOINT in .env:
+NODE_ENDPOINT=your.public.ip:51820
+
+📱 USING THE APPLICATION
+------------------------
+
+1. FRONTEND ACCESS
+   Open: http://localhost:3000
+   
+   Main Dashboard:
+   - Register your node as an operator
+   - View state and statistics
+   - Claim rewards
+
+2. VPN CLIENT PAGE
+   Open: http://localhost:3000/vpn
+   
+   Features:
+   - Interactive world map
+   - Server selection
+   - Connect/Disconnect VPN
+   - Real-time bandwidth monitoring
+
+3. WIREGUARD CONFIG DOWNLOAD
+   Open: http://localhost:3000/wg-demo
+   
+   Steps:
+   a) Start a VPN session from the main page
+   b) Copy the session PDA address
+   c) Paste it in the WireGuard demo page
+   d) Click "Get WG Config"
+   e) Download the client-wg.conf file
+   f) Import into WireGuard app or run:
+      sudo wg-quick up client-wg.conf
+
+🔬 ZERO-KNOWLEDGE PROOF SYSTEM
+------------------------------
+
+1. BUILD ZK CIRCUIT (Optional - for development)
+   cd circuits
+   bash build-proof.sh
+   
+   Note: Requires pot12_final.ptau file (already in repo)
+
+2. VERIFY PROOF
+   cd circuits
+   snarkjs groth16 verify build/verification_key.json build/public.json build/proof.json
+
+3. RUN ATTESTOR WITH PROOF
+   cd services/attestor  
+   npm run build
+   node dist/attestor.js <SESSION_PUBKEY>
+
+🌐 API ENDPOINTS
+----------------
+
+ATTESTOR (http://localhost:8787):
+  POST /record-usage          - Record bandwidth usage
+  GET  /nodes                 - List all registered nodes
+  POST /start-session-tx      - Build start session transaction
+  POST /settle-session-tx     - Build settle session transaction
+
+NODE OPERATOR AGENT (http://localhost:8788):
+  GET  /health                - Health check
+  GET  /wg-config?session=X   - Get WireGuard config for session
+  GET  /session/:pubkey       - Get session info
+
+VPN WEBSOCKET (ws://localhost:3001):
+  - Real-time VPN traffic tunnel
+  - Bandwidth tracking
+  - Session management
+
+🔐 ENVIRONMENT VARIABLES
+------------------------
+
+Key variables in .env:
+
+DVPN_PROGRAM_ID              - Your deployed program ID
+OPERATOR_PUBKEY              - Node operator public key
+ATTESTOR_URL                 - Attestor service URL
+AGENT_PORT                   - Agent server port (8788)
+NODE_WS_PORT                 - WebSocket port (3001)
+NODE_ENDPOINT                - WireGuard endpoint (IP:51820)
+NEXT_PUBLIC_NODE_AGENT_URL   - Agent URL for frontend
+
+📊 TESTING END-TO-END FLOW
+--------------------------
+
+1. Register a Node:
+   - Open http://localhost:3000
+   - Connect Phantom wallet
+   - Click "Register Node" tab
+   - Enter stake amount and bandwidth
+   - Submit transaction
+
+2. Start VPN Session:
+   - Go to "VPN Client" page
+   - Select a server from the list
+   - Click "Connect"
+   - Approve wallet transaction
+
+3. Download WireGuard Config:
+   - Go to /wg-demo
+   - Enter your session PDA
+   - Download config file
+   - Import to WireGuard app
+
+4. Use VPN:
+   - Activate WireGuard connection
+   - Browse internet through VPN
+   - Monitor bandwidth in real-time
+
+5. Settlement:
+   - Attestor automatically tracks usage
+   - Click "Disconnect" to settle session
+   - Tokens transferred to node operator
+
+🛠️ TROUBLESHOOTING
+------------------
+
+Issue: "build-sbf command not found"
+Solution: The program is already built. If you need to rebuild:
+  anchor build
+
+Issue: "Error: Port already in use"  
+Solution: Kill existing processes:
+  Get-Process node | Stop-Process -Force
+
+Issue: "WireGuard keys not found"
+Solution: Generate manually:
+  cd services/node-operator
+  bash scripts/gen-wg-config.sh
+
+Issue: "snarkjs not found"
+Solution: Install globally:
+  npm install -g snarkjs
+
+Issue: "Next.js build error #321"
+Solution: This is a known issue with error pages. Your main pages work fine.
+  The error only affects /404 and /500 which render dynamically.
+
+📚 ADDITIONAL RESOURCES
+----------------------
+
+WireGuard Documentation: https://www.wireguard.com/
+Circom Documentation: https://docs.circom.io/
+Anchor Framework: https://www.anchor-lang.com/
+Solana Web3.js: https://solana-labs.github.io/solana-web3.js/
+
+🎉 You're all set! Enjoy your decentralized VPN!
+
