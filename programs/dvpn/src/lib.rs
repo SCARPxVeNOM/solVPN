@@ -102,6 +102,23 @@ pub mod dvpn {
         Ok(())
     }
 
+    /// Faucet: Mint tokens to user for testing (devnet only)
+    pub fn faucet(ctx: Context<Faucet>, amount: u64) -> Result<()> {
+        // Only attestor can call faucet
+        require_keys_eq!(ctx.accounts.state.attestor, ctx.accounts.attestor.key(), DvpnError::Unauthorized);
+        
+        let cpi_accounts = MintTo {
+            mint: ctx.accounts.dvpn_mint.to_account_info(),
+            to: ctx.accounts.user_token_account.to_account_info(),
+            authority: ctx.accounts.state_signer.to_account_info(),
+        };
+        let seeds: &[&[u8]] = &[b"state", ctx.accounts.state.authority.as_ref(), &[ctx.accounts.state.bump]];
+        let signer = &[&seeds[..]];
+        let cpi_ctx = CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), cpi_accounts, signer);
+        token::mint_to(cpi_ctx, amount)?;
+        Ok(())
+    }
+
     /// Start a new VPN session with escrow deposit
     pub fn start_session(ctx: Context<StartSession>, deposit_amount: u64) -> Result<()> {
         let session = &mut ctx.accounts.session;
@@ -354,6 +371,22 @@ pub struct ClaimRewards<'info> {
 }
 
 #[derive(Accounts)]
+pub struct Faucet<'info> {
+    #[account(mut)]
+    pub attestor: Signer<'info>,
+    #[account(seeds = [b"state", state.authority.as_ref()], bump = state.bump)]
+    pub state: Account<'info, State>,
+    /// CHECK: PDA signer (mint authority)
+    #[account(seeds = [b"state", state.authority.as_ref()], bump = state.bump)]
+    pub state_signer: UncheckedAccount<'info>,
+    #[account(mut, constraint = dvpn_mint.key() == state.mint)]
+    pub dvpn_mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub user_token_account: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
 pub struct StartSession<'info> {
     #[account(
         init,
@@ -369,13 +402,6 @@ pub struct StartSession<'info> {
     pub node: Account<'info, Node>,
     #[account(seeds = [b"state", state.authority.as_ref()], bump = state.bump)]
     pub state: Account<'info, State>,
-    /// Escrow token account to hold user's deposit
-    #[account(mut)]
-    pub escrow_token_account: Account<'info, TokenAccount>,
-    /// User's token account (source of deposit)
-    #[account(mut)]
-    pub user_token_account: Account<'info, TokenAccount>,
-    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
